@@ -5,3 +5,5 @@
 - SpringBoot
 - 빌드 관리 도구 : Gradle
 - DataBase : Oracle
+- Template Engine : React
+- Lombok
