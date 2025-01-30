@@ -1,12 +1,14 @@
 import './App.css'
 import OrganizationChart from './components/OrganizationChart'
+import { OrganizationList } from './components/OrganizationList'
+import OrganizationManagement from './components/OrganizationManagement '
 import SurveyForm from './components/SurveyForm'
 
 function App() {
 
   return (
     <>
-    <OrganizationChart periodId='29' />
+    <OrganizationManagement />
 
     {/* <SurveyForm /> */}
     {/* <SurveyForm /> */}
