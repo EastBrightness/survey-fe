@@ -1,11 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import {
+  Box,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Checkbox,
+  Button,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  CircularProgress,
+  Alert
+} from '@mui/material';
+import { styled } from '@mui/system';
 
 interface Organization {
   id: number;
   orgName: string;
   fullName: string;
-  oCode: string;
+  ocode: string;  // Corrected from ocode
   upCode: string;
   employeeCount: number;
   isDeleted: boolean;
@@ -36,13 +60,24 @@ const OrganizationManagement: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showEmployeeModal, setShowEmployeeModal] = useState<boolean>(false);
   const [showMoveModal, setShowMoveModal] = useState<boolean>(false);
+  const [showAddEmployeeModal, setShowAddEmployeeModal] = useState<boolean>(false);
+  const [showAddOrgModal, setShowAddOrgModal] = useState<boolean>(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [searchEmployeeName, setSearchEmployeeName] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<Employee[]>([]);
+  const [deletedOrgs, setDeletedOrgs] = useState<Organization[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
-  const [loading, setLoading] = useState({ employees: false });
+  const [loading, setLoading] = useState({
+    employees: false,
+    search: false,
+    update: false,
+    employeeUpdate: {} as { [key: string]: boolean } // Corrected type definition
+  });
 
   useEffect(() => {
     loadOrganizations();
+    loadDeletedOrganizations();
   }, []);
 
   const loadOrganizations = async () => {
@@ -55,6 +90,89 @@ const OrganizationManagement: React.FC = () => {
       setError('조직 정보를 불러오는데 실패했습니다.');
     }
   };
+
+  const loadDeletedOrganizations = async () => {
+    try {
+      const response = await fetch('/api/organizations/deleted');
+      if (!response.ok) throw new Error('Failed to load deleted organizations');
+      const data = await response.json();
+      setDeletedOrgs(data);
+    } catch (err) {
+      setError('삭제된 조직 정보를 불러오는데 실패했습니다.');
+    }
+  };
+
+  const searchEmployees = async () => {
+    if (!searchEmployeeName.trim()) return;
+
+    setLoading(prev => ({ ...prev, search: true }));
+    try {
+      const response = await fetch(`/api/employees/search?name=${encodeURIComponent(searchEmployeeName)}`);
+      if (!response.ok) throw new Error('Failed to search employees');
+      const data = await response.json();
+      setSearchResults(data);
+    } catch (err) {
+      setError('직원 검색에 실패했습니다.');
+    } finally {
+      setLoading(prev => ({ ...prev, search: false }));
+    }
+  };
+
+  const handleAddEmployee = async (employee: Employee) => {
+    try {
+      const updatedEmployee = {
+        ...employee,
+        organizationName: selectedOrg,
+        isDeleted: false,
+        othersTested: false,
+        othersTester: false
+      };
+
+      const response = await fetch(`/api/employees/${employee.employeeNumber}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedEmployee),
+      });
+
+      if (!response.ok) throw new Error('Failed to add employee');
+
+      // Refresh employee list
+      if (selectedOrg) {
+        await fetchEmployees(selectedOrg);
+      }
+      setShowAddEmployeeModal(false);
+      setSearchEmployeeName('');
+      setSearchResults([]);
+    } catch (err) {
+      setError('직원 추가에 실패했습니다.');
+    }
+  };
+
+    const handleRestoreOrganization = async (org: Organization) => {
+        if (!org || !org.ocode) {
+            setError('조직 코드가 유효하지 않습니다.');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/organizations/${org.ocode}/restore`, {
+                method: 'POST',
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Failed to restore organization: ${response.status} - ${errorText}`);
+            }
+
+            await loadOrganizations();
+            await loadDeletedOrganizations();
+            setShowAddOrgModal(false);
+        } catch (err) {
+            setError(`조직 복원에 실패했습니다: ${err.message}`);
+        }
+    };
 
   const handleOrgToggle = async (oCode: string, isDeleted: boolean) => {
     try {
@@ -93,24 +211,24 @@ const OrganizationManagement: React.FC = () => {
   };
 
   const updateEmployee = async (employeeNumber: string, updates: Partial<Employee>) => {
-    if (loading.employeeUpdate[employeeNumber]) return;
-      
+    if (loading.employeeUpdate && loading.employeeUpdate[employeeNumber]) return;
+
     setLoading(prev => ({
       ...prev,
       employeeUpdate: { ...prev.employeeUpdate, [employeeNumber]: true }
     }));
-      
+
     try {
       // 현재 직원의 전체 데이터를 찾습니다
       const currentEmployee = employees.find(emp => emp.employeeNumber === employeeNumber);
       if (!currentEmployee) throw new Error('Employee not found');
-  
+
       // 현재 데이터와 업데이트를 병합합니다
       const updatedData = {
         ...currentEmployee,
         ...updates
       };
-  
+
       const response = await fetch(`/api/employees/${employeeNumber}`, {
         method: 'PUT',
         headers: {
@@ -118,9 +236,9 @@ const OrganizationManagement: React.FC = () => {
         },
         body: JSON.stringify(updatedData),
       });
-  
+
       if (!response.ok) throw new Error('Failed to update employee');
-        
+
       const updatedEmployees = employees.map(emp =>
         emp.employeeNumber === employeeNumber ? { ...emp, ...updates } : emp
       );
@@ -138,7 +256,7 @@ const OrganizationManagement: React.FC = () => {
 
   const handleBulkDelete = async () => {
     if (!selectedOrgs.length) return;
-    
+
     try {
       // 조직 삭제
       const orgResponse = await fetch('/api/organizations/delete', {
@@ -148,9 +266,9 @@ const OrganizationManagement: React.FC = () => {
         },
         body: JSON.stringify(selectedOrgs),
       });
-   
+
       if (!orgResponse.ok) throw new Error('Failed to delete organizations');
-    
+
       setSelectedOrgs([]);
       await loadOrganizations();
       setError(null);
@@ -169,203 +287,305 @@ const OrganizationManagement: React.FC = () => {
     }
   };
 
+    const CustomTableContainer = styled(TableContainer)({
+        maxWidth: '100%',
+        margin: '0 auto',
+    });
 
-  return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 text-red-700 rounded">
-          {error}
-        </div>
-      )}
-      
-      <div className="flex justify-between mb-4">
-        <h1 className="text-2xl font-bold">조직 관리</h1>
-        <div className="space-x-2">
-          <button 
-            onClick={() => selectedOrg && handleOrgToggle(selectedOrg, false)} 
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            disabled={!selectedOrg}
-          >
-            집단 추가
-          </button>
-          <button
-            onClick={handleBulkDelete}
-            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
-            disabled={selectedOrgs.length === 0}
-          >
-            선택 조직 삭제
-          </button>
-          <button 
-            onClick={handleRandomAssignment}
-            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-          >
-            랜덤 배정
-          </button>
-        </div>
-      </div>
+    return (
+        <Box sx={{ p: 3, maxWidth: '100%' }}>
+            {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                    {error}
+                </Alert>
+            )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">선택</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">순번</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">평가 집단명</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">집단 인원</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">상세현황</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {organizations.map((org, index) => (
-              <tr key={org.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedOrgs.includes(org.fullName)}
-                    onChange={(e) => {
-                      setSelectedOrgs(prev => 
-                        e.target.checked
-                          ? [...prev, org.fullName]
-                          : prev.filter(name => name !== org.fullName)
-                      );
-                    }}
-                    className="rounded border-gray-300"
-                  />
-                </td>
-                <td className="px-6 py-4">{index + 1}</td>
-                <td className="px-6 py-4">{org.fullName}</td>
-                <td className="px-6 py-4">{org.employeeCount}</td>
-                <td className="px-6 py-4">
-                <button
-                    onClick={() => toggleEmployeeModal(org.fullName)}
-                    className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                    disabled={loading.employees}
-                  >
-                    {loading.employees ? '로딩중...' : (showEmployeeModal && selectedOrg === org.fullName ? '닫기' : '보기')}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0, mr: 2 }}>조직 관리</h1>
+                </Box>
+                <Box>
+                    <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={() => selectedOrg && handleOrgToggle(selectedOrg, false)}
+                        disabled={!selectedOrg}
+                        sx={{ mr: 1 }}
+                    >
+                        집단 추가
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        onClick={handleBulkDelete}
+                        disabled={selectedOrgs.length === 0}
+                        sx={{ mr: 1 }}
+                    >
+                        선택 조직 삭제
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="success"
+                        onClick={handleRandomAssignment}
+                        sx={{ mr: 1 }}
+                    >
+                        랜덤 배정
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="info"
+                        onClick={() => setShowAddOrgModal(true)}
+                    >
+                        삭제된 조직
+                    </Button>
+                </Box>
+            </Box>
 
-      {showEmployeeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between mb-4">
-              <h2 className="text-xl font-bold">조직원 상세 현황</h2>
-              <button 
-                onClick={() => setShowEmployeeModal(false)} 
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2">순번</th>
-                  <th className="px-4 py-2">소속</th>
-                  <th className="px-4 py-2">직책</th>
-                  <th className="px-4 py-2">계급</th>
-                  <th className="px-4 py-2">성명</th>
-                  <th className="px-4 py-2">인사상태</th>
-                  <th className="px-4 py-2">근무기간</th>
-                  <th className="px-4 py-2">타인평가 대상</th>
-                  <th className="px-4 py-2">타인평가 참여</th>
-                  <th className="px-4 py-2">편집</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((emp, index) => (
-                  <tr key={emp.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2">{index + 1}</td>
-                    <td className="px-4 py-2">{emp.organizationName}</td>
-                    <td className="px-4 py-2">{emp.jobName}</td>
-                    <td className="px-4 py-2">{emp.gradeName}</td>
-                    <td className="px-4 py-2">{emp.personName}</td>
-                    <td className="px-4 py-2">{emp.isDeleted ? '삭제됨' : '재직'}</td>
-                    <td className="px-4 py-2">{emp.workingMonths}개월</td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="checkbox"
-                        checked={emp.othersTested}
-                        onChange={() => updateEmployee(emp.employeeNumber, { othersTested: !emp.othersTested })}
-                        className="rounded border-gray-300"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="checkbox"
-                        checked={emp.othersTester}
-                        onChange={() => updateEmployee(emp.employeeNumber, { othersTester: !emp.othersTester })}
-                        className="rounded border-gray-300"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <button
-                        onClick={() => {
-                          setSelectedEmployee(emp);
-                          setShowMoveModal(true);
-                        }}
-                        className="mr-2 text-blue-600 hover:text-blue-900"
-                      >
-                        이동
-                      </button>
-                      <button
-                        onClick={() => updateEmployee(emp.employeeNumber, { isDeleted: true })}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        삭제
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+            <CustomTableContainer component={Paper}>
+                <Table sx={{ minWidth: 650 }} aria-label="simple table">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>선택</TableCell>
+                            <TableCell>순번</TableCell>
+                            <TableCell>평가 집단명</TableCell>
+                            <TableCell>집단 인원</TableCell>
+                            <TableCell>상세현황</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {organizations.map((org, index) => (
+                            <TableRow key={org.id} hover>
+                                <TableCell padding="checkbox">
+                                    <Checkbox
+                                        checked={selectedOrgs.includes(org.fullName)}
+                                        onChange={(e) => {
+                                            setSelectedOrgs(prev =>
+                                                e.target.checked
+                                                    ? [...prev, org.fullName]
+                                                    : prev.filter(name => name !== org.fullName)
+                                            );
+                                        }}
+                                    />
+                                </TableCell>
+                                <TableCell>{index + 1}</TableCell>
+                                <TableCell>{org.fullName}</TableCell>
+                                <TableCell>{org.employeeCount}</TableCell>
+                                <TableCell>
+                                    <Button
+                                        variant="text"
+                                        color="primary"
+                                        onClick={() => toggleEmployeeModal(org.fullName)}
+                                        disabled={loading.employees}
+                                    >
+                                        {loading.employees ? '로딩중...' : (showEmployeeModal && selectedOrg === org.fullName ? '닫기' : '보기')}
+                                    </Button>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CustomTableContainer>
 
-      {showMoveModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg w-full max-w-md">
-            <div className="flex justify-between mb-4">
-              <h2 className="text-xl font-bold">조직 이동</h2>
-              <button 
-                onClick={() => setShowMoveModal(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <select 
-                className="w-full p-2 border rounded"
-                onChange={async (e) => {
-                  const newOrg = organizations.find(org => org.oCode === e.target.value);
-                  if (newOrg && selectedEmployee) {
-                    await updateEmployee(selectedEmployee.employeeNumber, {
-                      organizationName: newOrg.fullName
-                    });
-                    setShowMoveModal(false);
-                  }
-                }}
-              >
-                <option value="">조직 선택</option>
-                {organizations.map(org => (
-                  <option key={org.oCode} value={org.oCode}>
-                    {org.fullName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+            {/* Employee Modal */}
+            <Dialog open={showEmployeeModal} onClose={() => setShowEmployeeModal(false)} maxWidth="md" fullWidth>
+                <DialogTitle>조직원 상세 현황</DialogTitle>
+                <DialogContent>
+                    <TableContainer component={Paper}>
+                        <Table>
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>순번</TableCell>
+                                    <TableCell>소속</TableCell>
+                                    <TableCell>직책</TableCell>
+                                    <TableCell>계급</TableCell>
+                                    <TableCell>성명</TableCell>
+                                    <TableCell>인사상태</TableCell>
+                                    <TableCell>근무기간</TableCell>
+                                    <TableCell>타인평가 대상</TableCell>
+                                    <TableCell>타인평가 참여</TableCell>
+                                    <TableCell>편집</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {employees.map((emp, index) => (
+                                    <TableRow key={emp.id} hover>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>{emp.organizationName}</TableCell>
+                                        <TableCell>{emp.jobName}</TableCell>
+                                        <TableCell>{emp.gradeName}</TableCell>
+                                        <TableCell>{emp.personName}</TableCell>
+                                        <TableCell>{emp.isDeleted ? '삭제됨' : '재직'}</TableCell>
+                                        <TableCell>{emp.workingMonths}개월</TableCell>
+                                        <TableCell>
+                                            <Checkbox
+                                                checked={emp.othersTested}
+                                                onChange={() => updateEmployee(emp.employeeNumber, { othersTested: !emp.othersTested })}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Checkbox
+                                                checked={emp.othersTester}
+                                                onChange={() => updateEmployee(emp.employeeNumber, { othersTester: !emp.othersTester })}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Button
+                                                color="primary"
+                                                onClick={() => {
+                                                    setSelectedEmployee(emp);
+                                                    setShowMoveModal(true);
+                                                }}
+                                            >
+                                                이동
+                                            </Button>
+                                            <Button
+                                                color="error"
+                                                onClick={() => updateEmployee(emp.employeeNumber, { isDeleted: true })}
+                                            >
+                                                삭제
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowEmployeeModal(false)}>닫기</Button>
+                    <Button variant="contained" color="primary" onClick={() => setShowAddEmployeeModal(true)}>
+                        인원 추가
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Add Organization Modal */}
+            <Dialog open={showAddOrgModal} onClose={() => setShowAddOrgModal(false)} maxWidth="md" fullWidth>
+                <DialogTitle>삭제된 조직 목록</DialogTitle>
+                <DialogContent>
+                    <TableContainer component={Paper}>
+                        <Table>
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>조직명</TableCell>
+                                    <TableCell>전체 조직명</TableCell>
+                                    <TableCell>액션</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {deletedOrgs.map((org) => (
+                                    <TableRow key={org.id} hover>
+                                        <TableCell>{org.orgName}</TableCell>
+                                        <TableCell>{org.fullName}</TableCell>
+                                        <TableCell>
+                                            <Button
+                                                color="primary"
+                                                onClick={() => handleRestoreOrganization(org)}
+                                            >
+                                                선택
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowAddOrgModal(false)}>닫기</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Add Employee Modal */}
+            <Dialog open={showAddEmployeeModal} onClose={() => setShowAddEmployeeModal(false)} maxWidth="md" fullWidth>
+                <DialogTitle>인원 추가</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                        <TextField
+                            label="이름 입력"
+                            variant="outlined"
+                            fullWidth
+                            value={searchEmployeeName}
+                            onChange={(e) => setSearchEmployeeName(e.target.value)}
+                        />
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={searchEmployees}
+                            disabled={loading.search}
+                        >
+                            {loading.search ? <CircularProgress size={24} /> : '검색'}
+                        </Button>
+                    </Box>
+                    {searchResults.length > 0 && (
+                        <TableContainer component={Paper}>
+                            <Table>
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>이름</TableCell>
+                                        <TableCell>현재 소속</TableCell>
+                                        <TableCell>액션</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {searchResults.map((emp) => (
+                                        <TableRow key={emp.id} hover>
+                                            <TableCell>{emp.personName}</TableCell>
+                                            <TableCell>{emp.organizationName}</TableCell>
+                                            <TableCell>
+                                                <Button
+                                                    color="primary"
+                                                    onClick={() => handleAddEmployee(emp)}
+                                                >
+                                                    선택
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowAddEmployeeModal(false)}>닫기</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Move Modal */}
+            <Dialog open={showMoveModal} onClose={() => setShowMoveModal(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>조직 이동</DialogTitle>
+                <DialogContent>
+                    <FormControl fullWidth variant="outlined">
+                        <InputLabel id="org-select-label">조직 선택</InputLabel>
+                        <Select
+                            labelId="org-select-label"
+                            id="org-select"
+                            value=""
+                            label="조직 선택"
+                            onChange={async (e) => {
+                                const newOrg = organizations.find(org => org.oCode === e.target.value);
+                                if (newOrg && selectedEmployee) {
+                                    await updateEmployee(selectedEmployee.employeeNumber, {
+                                        organizationName: newOrg.fullName
+                                    });
+                                    setShowMoveModal(false);
+                                }
+                            }}
+                        >
+                            <MenuItem value=""><em>조직 선택</em></MenuItem>
+                            {organizations.map(org => (
+                                <MenuItem key={org.oCode} value={org.oCode}>{org.fullName}</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowMoveModal(false)}>닫기</Button>
+                </DialogActions>
+            </Dialog>
+        </Box>
+    );
 };
 
 export default OrganizationManagement;
