@@ -29,7 +29,7 @@ interface Organization {
   id: number;
   orgName: string;
   fullName: string;
-  ocode: string;  // Corrected from ocode
+  oCode: string;
   upCode: string;
   employeeCount: number;
   isDeleted: boolean;
@@ -72,7 +72,7 @@ const OrganizationManagement: React.FC = () => {
     employees: false,
     search: false,
     update: false,
-    employeeUpdate: {} as { [key: string]: boolean } // Corrected type definition
+    employeeUpdate: {} as { [key: string]: boolean }
   });
 
   useEffect(() => {
@@ -85,7 +85,9 @@ const OrganizationManagement: React.FC = () => {
       const response = await fetch('/api/organizations/tree');
       if (!response.ok) throw new Error('Failed to load organizations');
       const data = await response.json();
-      setOrganizations(data);
+      // isDeleted가 false인 조직만 필터링
+      const activeOrganizations = data.filter(org => !org.isDeleted);
+      setOrganizations(activeOrganizations);
     } catch (err) {
       setError('조직 정보를 불러오는데 실패했습니다.');
     }
@@ -138,7 +140,6 @@ const OrganizationManagement: React.FC = () => {
 
       if (!response.ok) throw new Error('Failed to add employee');
 
-      // Refresh employee list
       if (selectedOrg) {
         await fetchEmployees(selectedOrg);
       }
@@ -150,29 +151,29 @@ const OrganizationManagement: React.FC = () => {
     }
   };
 
-    const handleRestoreOrganization = async (org: Organization) => {
-        if (!org || !org.ocode) {
-            setError('조직 코드가 유효하지 않습니다.');
-            return;
-        }
+  const handleRestoreOrganization = async (org: Organization) => {
+    if (!org || !org.oCode) {
+      setError('조직 코드가 유효하지 않습니다.');
+      return;
+    }
 
-        try {
-            const response = await fetch(`/api/organizations/${org.ocode}/restore`, {
-                method: 'POST',
-            });
+    try {
+      const response = await fetch(`/api/organizations/${org.oCode}/restore`, {
+        method: 'POST',
+      });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Failed to restore organization: ${response.status} - ${errorText}`);
-            }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to restore organization: ${response.status} - ${errorText}`);
+      }
 
-            await loadOrganizations();
-            await loadDeletedOrganizations();
-            setShowAddOrgModal(false);
-        } catch (err) {
-            setError(`조직 복원에 실패했습니다: ${err.message}`);
-        }
-    };
+      await loadOrganizations();
+      await loadDeletedOrganizations();
+      setShowAddOrgModal(false);
+    } catch (err) {
+      setError(`조직 복원에 실패했습니다: ${err.message}`);
+    }
+  };
 
   const handleOrgToggle = async (oCode: string, isDeleted: boolean) => {
     try {
@@ -219,11 +220,9 @@ const OrganizationManagement: React.FC = () => {
     }));
 
     try {
-      // 현재 직원의 전체 데이터를 찾습니다
       const currentEmployee = employees.find(emp => emp.employeeNumber === employeeNumber);
       if (!currentEmployee) throw new Error('Employee not found');
 
-      // 현재 데이터와 업데이트를 병합합니다
       const updatedData = {
         ...currentEmployee,
         ...updates
@@ -258,7 +257,6 @@ const OrganizationManagement: React.FC = () => {
     if (!selectedOrgs.length) return;
 
     try {
-      // 조직 삭제
       const orgResponse = await fetch('/api/organizations/delete', {
         method: 'POST',
         headers: {
@@ -287,12 +285,14 @@ const OrganizationManagement: React.FC = () => {
     }
   };
 
-    const CustomTableContainer = styled(TableContainer)({
-        maxWidth: '100%',
-        margin: '0 auto',
-    });
+  const CustomTableContainer = styled(TableContainer)({
+    maxWidth: '100%',
+    margin: '0 auto',
+  });
 
-    return (
+      // ... 이전 코드 계속
+
+      return (
         <Box sx={{ p: 3, maxWidth: '100%' }}>
             {error && (
                 <Alert severity="error" sx={{ mb: 2 }}>
@@ -302,7 +302,7 @@ const OrganizationManagement: React.FC = () => {
 
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0, mr: 2 }}>조직 관리</h1>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0, marginRight: '1rem' }}>조직 관리</h1>
                 </Box>
                 <Box>
                     <Button
@@ -386,7 +386,7 @@ const OrganizationManagement: React.FC = () => {
                 </Table>
             </CustomTableContainer>
 
-            {/* Employee Modal */}
+            {/* 직원 모달 */}
             <Dialog open={showEmployeeModal} onClose={() => setShowEmployeeModal(false)} maxWidth="md" fullWidth>
                 <DialogTitle>조직원 상세 현황</DialogTitle>
                 <DialogContent>
@@ -459,7 +459,7 @@ const OrganizationManagement: React.FC = () => {
                 </DialogActions>
             </Dialog>
 
-            {/* Add Organization Modal */}
+            {/* 조직 추가 모달 */}
             <Dialog open={showAddOrgModal} onClose={() => setShowAddOrgModal(false)} maxWidth="md" fullWidth>
                 <DialogTitle>삭제된 조직 목록</DialogTitle>
                 <DialogContent>
@@ -496,7 +496,7 @@ const OrganizationManagement: React.FC = () => {
                 </DialogActions>
             </Dialog>
 
-            {/* Add Employee Modal */}
+            {/* 직원 추가 모달 */}
             <Dialog open={showAddEmployeeModal} onClose={() => setShowAddEmployeeModal(false)} maxWidth="md" fullWidth>
                 <DialogTitle>인원 추가</DialogTitle>
                 <DialogContent>
@@ -552,7 +552,7 @@ const OrganizationManagement: React.FC = () => {
                 </DialogActions>
             </Dialog>
 
-            {/* Move Modal */}
+            {/* 이동 모달 */}
             <Dialog open={showMoveModal} onClose={() => setShowMoveModal(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>조직 이동</DialogTitle>
                 <DialogContent>
