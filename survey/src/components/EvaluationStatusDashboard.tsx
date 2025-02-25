@@ -13,21 +13,36 @@ import {
   CardContent,
   Typography,
   Collapse,
-  IconButton
+  IconButton,
+  Grid,
+  LinearProgress,
+  Tooltip
 } from '@mui/material';
 import {
   KeyboardArrowDown,
   KeyboardArrowRight,
-  Download
+  Download,
+  CheckCircle,
+  Cancel,
+  Info
 } from '@mui/icons-material';
 
-// Types remain the same
+// Updated DepartmentStatus interface
 interface DepartmentStatus {
   departmentName: string;
   selfEvaluationRate: number;
+  selfEvaluationRemainRate: number;
   otherEvaluationRate: number;
+  otherEvaluationRemainRate: number;
+  totalSelfCount: number;
+  completedSelfCount: number;
+  remainingSelfCount: number;
+  totalOthersCount: number;
+  completedOthersCount: number;
+  remainingOthersCount: number;
 }
 
+// Other interfaces remain the same
 interface GroupStatus {
   groupName: string;
   selfEvaluationRate: number;
@@ -53,7 +68,7 @@ interface EvaluationDetail {
   isCompleted: boolean;
 }
 
-// API Service remains the same
+// API Service with the same methods
 const api = {
   getDepartmentStatus: async (departmentName: string): Promise<DepartmentStatus> => {
     const response = await fetch(`/api/evaluation-status/department/${departmentName}`);
@@ -68,12 +83,44 @@ const api = {
     return response.json();
   },
   getEvaluationDetail: async (testerNumber: string): Promise<EvaluationDetail[]> => {
-    const response = await fetch(`/api/evaluation-status/evaluation-detail/${testerNumber}`);
+    const response = await fetch(`${testerNumber}`);
     return response.json();
   }
 };
 
-// Excel Download Button Component
+// Reusable progress component
+const EvaluationProgressBar = ({ 
+  completed, 
+  total, 
+  label, 
+  color = 'primary' 
+}: { 
+  completed: number; 
+  total: number; 
+  label: string;
+  color?: 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' | 'inherit';
+}) => {
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  
+  return (
+    <Box sx={{ width: '100%', mb: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+        <Typography variant="body2">{label}</Typography>
+        <Typography variant="body2">
+          {completed}/{total} ({percentage}%)
+        </Typography>
+      </Box>
+      <LinearProgress 
+        variant="determinate" 
+        value={percentage} 
+        color={color}
+        sx={{ height: 10, borderRadius: 5 }}
+      />
+    </Box>
+  );
+};
+
+// Excel Download Button Component (unchanged)
 const ExcelDownloadButton = ({ url, label }: { url: string; label: string }) => {
   const handleDownload = async () => {
     try {
@@ -81,7 +128,7 @@ const ExcelDownloadButton = ({ url, label }: { url: string; label: string }) => 
       
       // Content-Disposition 헤더에서 파일명 추출
       const contentDisposition = response.headers.get('content-disposition');
-      let filename = `${label}.xls`;  // 기본 파일명
+      let filename = `${label}.cell`;  // 기본 파일명
       if (contentDisposition) {
         const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
         if (matches != null && matches[1]) {
@@ -116,7 +163,7 @@ const ExcelDownloadButton = ({ url, label }: { url: string; label: string }) => 
   );
 };
 
-// Expandable Row Component
+// Expandable Row Component (unchanged)
 interface ExpandableRowProps<T> {
   data: T;
   columns: { key: keyof T; label: string; render?: (value: any) => React.ReactNode }[];
@@ -185,7 +232,7 @@ const ExpandableRow = <T extends Record<string, any>>({
   );
 };
 
-// Evaluation Detail Table Component
+// Evaluation Detail Table Component (unchanged)
 const EvaluationTable: React.FC<{ data: EvaluationDetail[]; parentData: PersonStatus }> = ({ data, parentData }) => (
   <Box>
     <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
@@ -219,7 +266,7 @@ const EvaluationTable: React.FC<{ data: EvaluationDetail[]; parentData: PersonSt
   </Box>
 );
 
-// Person Table Component
+// Person Table Component (unchanged)
 const PersonTable: React.FC<{ data: PersonStatus[]; parentData: GroupStatus }> = ({ data, parentData }) => (
   <Box>
     <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
@@ -270,7 +317,7 @@ const PersonTable: React.FC<{ data: PersonStatus[]; parentData: GroupStatus }> =
   </Box>
 );
 
-// Group Table Component
+// Group Table Component (unchanged)
 const GroupTable: React.FC<{ data: GroupStatus[]; parentData: DepartmentStatus }> = ({ data, parentData }) => (
   <Box>
     <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
@@ -315,7 +362,85 @@ const GroupTable: React.FC<{ data: GroupStatus[]; parentData: DepartmentStatus }
   </Box>
 );
 
-// Main Dashboard Component
+// New Dashboard Summary Component
+const DepartmentSummary: React.FC<{ data: DepartmentStatus }> = ({ data }) => (
+  <Card sx={{ mb: 3, p: 2 }}>
+    <Typography variant="h6" sx={{ mb: 2 }}>
+      {data.departmentName} 평가 현황 요약
+      <Tooltip title="이 데이터는 해당 부서 및 모든 하위 부서를 포함한 정보입니다">
+        <IconButton size="small">
+          <Info fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    </Typography>
+    
+    <Grid container spacing={3}>
+      <Grid item xs={12} md={6}>
+        <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1, p: 2, height: '100%' }}>
+          <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+            <CheckCircle color="primary" sx={{ mr: 1 }} />
+            자가평가 현황
+          </Typography>
+          
+          <EvaluationProgressBar 
+            completed={data.completedSelfCount} 
+            total={data.totalSelfCount} 
+            label="자가평가 완료율" 
+            color="primary"
+          />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+            <Box>
+              <Typography variant="body2" color="text.secondary">전체 대상자</Typography>
+              <Typography variant="h6">{data.totalSelfCount}명</Typography>
+            </Box>
+            <Box>
+              <Typography variant="body2" color="text.secondary">완료</Typography>
+              <Typography variant="h6" color="primary">{data.completedSelfCount}명</Typography>
+            </Box>
+            <Box>
+              <Typography variant="body2" color="text.secondary">미완료</Typography>
+              <Typography variant="h6" color="error">{data.remainingSelfCount}명</Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Grid>
+      
+      <Grid item xs={12} md={6}>
+        <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 1, p: 2, height: '100%' }}>
+          <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+            <CheckCircle color="secondary" sx={{ mr: 1 }} />
+            타인평가 현황
+          </Typography>
+          
+          <EvaluationProgressBar 
+            completed={data.completedOthersCount} 
+            total={data.totalOthersCount} 
+            label="타인평가 완료율" 
+            color="secondary"
+          />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+            <Box>
+              <Typography variant="body2" color="text.secondary">전체 건수</Typography>
+              <Typography variant="h6">{data.totalOthersCount}건</Typography>
+            </Box>
+            <Box>
+              <Typography variant="body2" color="text.secondary">완료</Typography>
+              <Typography variant="h6" color="secondary">{data.completedOthersCount}건</Typography>
+            </Box>
+            <Box>
+              <Typography variant="body2" color="text.secondary">미완료</Typography>
+              <Typography variant="h6" color="error">{data.remainingOthersCount}건</Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Grid>
+    </Grid>
+  </Card>
+);
+
+// Updated Main Dashboard Component
 const EvaluationStatusDashboard: React.FC = () => {
   const [departmentData, setDepartmentData] = useState<DepartmentStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -350,12 +475,20 @@ const EvaluationStatusDashboard: React.FC = () => {
   return (
     <Card>
       <CardContent>
+        {/* New Summary Section */}
+        <DepartmentSummary data={departmentData} />
+        
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
           <ExcelDownloadButton 
             url={`/api/excel/department/${departmentData.departmentName}`}
             label="부서현황"
           />
         </Box>
+        
+        <Typography variant="subtitle1" sx={{ mb: 2 }}>
+          하위 부서별 현황
+        </Typography>
+        
         <Table>
           <TableHead>
             <TableRow>
