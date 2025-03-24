@@ -1,3 +1,4 @@
+// SurveyResult.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import '../SurveyResult.css';
@@ -29,15 +30,16 @@ const SurveyResult: React.FC = () => {
   // Refs for D3 chart containers
   const barChartRef = useRef<SVGSVGElement | null>(null);
   
-  // For demo purposes, we'll use a placeholder for the employee number
+  // For demo purposes, we'll use a placeholder for the employee number and period ID
   const employeeNumber: number = 1020; // This would normally come from the login state
+  const periodId: number = 1; // This would normally come from a selection or context
   
   useEffect(() => {
     // Fetch survey result data when the component mounts
     const fetchSurveyResult = async (): Promise<void> => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/survey/result/${employeeNumber}`);
+        const response = await fetch(`/api/survey/result/${employeeNumber}/${periodId}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch survey results');
@@ -57,7 +59,7 @@ const SurveyResult: React.FC = () => {
     };
     
     fetchSurveyResult();
-  }, [employeeNumber]);
+  }, [employeeNumber, periodId]); // Add periodId as a dependency
   
   // Create D3 bar chart when resultData changes
   useEffect(() => {
@@ -66,8 +68,7 @@ const SurveyResult: React.FC = () => {
     }
   }, [resultData]);
   
-  // Determine the status color based on percentile (UPDATED)
-  // Lower percentile is better now (0% = best, 100% = worst)
+  // Determine the status color based on percentile
   const getStatusColor = (percentile: number): string => {
     if (percentile <= 10) return 'safe'; // Green for top 10%
     if (percentile <= 30) return 'warning'; // Yellow for top 10-30%
@@ -236,12 +237,12 @@ const SurveyResult: React.FC = () => {
         </p>
       </section>
       
-      {/* Percentile Section - UPDATED */}
+      {/* Percentile Section */}
       <section className="percentile-section">
         <h2>평가 수준 백분위</h2>
         
         <div className="percentile-bars">
-          {/* Overall Percentile - Changed to show inverse fill (100-percentile) */}
+          {/* Overall Percentile */}
           <div className="percentile-item">
             <div className="percentile-label">전체 대상자 대비 백분위</div>
             <div className="percentile-value">
@@ -255,7 +256,7 @@ const SurveyResult: React.FC = () => {
             </div>
           </div>
           
-          {/* Same Rank Percentile - Changed to show inverse fill (100-percentile) */}
+          {/* Same Rank Percentile */}
           <div className="percentile-item">
             <div className="percentile-label">동일 계급 내 백분위</div>
             <div className="percentile-value">
@@ -270,7 +271,6 @@ const SurveyResult: React.FC = () => {
           </div>
         </div>
         
-        {/* Updated legend text to match new color meanings */}
         <div className="legend">
           <div className="legend-item">
             <span className="legend-color danger"></span>

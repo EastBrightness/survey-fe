@@ -30,13 +30,14 @@ const SurveyResultRecharts: React.FC = () => {
   
   // 데모용으로 직원 번호 플레이스홀더 사용
   const employeeNumber: number = 1020; // 보통은 로그인 상태에서 가져옴
+  const periodId: number = 1;
   
   useEffect(() => {
     // 컴포넌트 마운트 시 설문 결과 데이터 가져오기
     const fetchSurveyResult = async (): Promise<void> => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/survey/result/${employeeNumber}`);
+        const response = await fetch(`/api/survey/result/${employeeNumber}/${periodId}`);
         
         if (!response.ok) {
           throw new Error('설문 결과를 가져오는 데 실패했습니다');
@@ -72,7 +73,7 @@ const SurveyResultRecharts: React.FC = () => {
     };
     
     fetchSurveyResult();
-  }, [employeeNumber]);
+  }, [employeeNumber, periodId]);
   
   // 백분위에 따른 상태 색상 결정 - 수정됨
   // 낮은 백분위가 더 좋음 (0%가 최고, 100%가 최악)
