@@ -14,7 +14,8 @@ import {
   useTheme,
   Divider
 } from '@mui/material';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Pie } from 'recharts';
+import { PieChart } from 'lucide-react';
 
 // 설문 결과 데이터에 대한 타입 정의
 interface SurveyResultData {
@@ -132,23 +133,37 @@ const SurveyResultMUI: React.FC = () => {
     return theme.palette.error.main; // 상위 30% 초과는 빨간색
   };
   
-  // 카테고리 비교 차트용 데이터 준비
-  const prepareCategoryData = (): CategoryData[] => {
-    if (!resultData) return [];
-    
-    const categories = [
-      ...new Set([
-        ...Object.keys(resultData.selfScoresByCategory),
-        ...Object.keys(resultData.othersScoresByCategory)
-      ])
-    ];
-    
-    return categories.map(category => ({
-      category,
-      self: resultData.selfScoresByCategory[category] || 0,
-      others: resultData.othersScoresByCategory[category] || 0
-    }));
-  };
+  
+// prepareCategoryData 메서드에 전체 평균 추가
+const prepareCategoryData = (): CategoryData[] => {
+  if (!resultData) return [];
+  
+  const categories = [
+    ...new Set([
+      ...Object.keys(resultData.selfScoresByCategory),
+      ...Object.keys(resultData.othersScoresByCategory)
+    ])
+  ];
+  
+  const categoryData = categories.map(category => ({
+    category,
+    self: resultData.selfScoresByCategory[category] || 0,
+    others: resultData.othersScoresByCategory[category] || 0
+  }));
+
+  // 전체 평균 계산
+  const overallSelfAverage = categoryData.reduce((sum, item) => sum + item.self, 0) / categoryData.length;
+  const overallOthersAverage = categoryData.reduce((sum, item) => sum + item.others, 0) / categoryData.length;
+
+  return [
+    ...categoryData,
+    {
+      category: '전체 평균',
+      self: overallSelfAverage,
+      others: overallOthersAverage
+    }
+  ];
+};
   
   if (loading) return (
     <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
@@ -271,6 +286,8 @@ const SurveyResultMUI: React.FC = () => {
           <Typography variant="h5" component="h2" gutterBottom>
             분야별 평가 수준
           </Typography>
+          <Grid container spacing={2}>
+          <Grid item xs={12} md={8}>
           <Box sx={styles.chartContainer}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
@@ -297,9 +314,11 @@ const SurveyResultMUI: React.FC = () => {
               </BarChart>
             </ResponsiveContainer>
           </Box>
-        </Box>
-      </Paper>
-      
+      </Grid>
+          <Grid item xs={12} md={4}>
+        <Box sx={styles.chartContainer}>
+          <ResponsiveContainer width="100%" height="100%">
+            
       {/* 피드백 섹션 */}
       <Paper elevation={3} sx={styles.section}>
         <Box p={3}>
@@ -324,6 +343,13 @@ const SurveyResultMUI: React.FC = () => {
           )}
         </Box>
       </Paper>
+          </ResponsiveContainer>
+        </Box>
+      </Grid>
+      </Grid>
+        </Box>
+      </Paper>
+      
     </Container>
   );
 };
