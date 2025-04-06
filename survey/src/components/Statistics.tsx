@@ -124,13 +124,12 @@ const Statistics: React.FC = () => {
    useEffect(() => {
     const fetchFilterOptions = async () => {
       try {
-        const response = await axios.get<{
-          personTypes: string[];
-          grades: string[];
-          sexes: string[];
-        }>('/api/statistics/filters');
-        
-        setFilterOptions(response.data);
+        const response = await fetch('/api/statistics/filters');
+        if (!response.ok) {
+          throw new Error('필터 옵션을 불러오는 중 오류 발생');
+        }
+        const data = await response.json();
+        setFilterOptions(data);
       } catch (error) {
         console.error('필터 옵션을 불러오는 중 오류 발생:', error);
       }
@@ -143,10 +142,14 @@ const Statistics: React.FC = () => {
   useEffect(() => {
     const fetchYears = async () => {
       try {
-        const response = await axios.get<string[]>('/api/statistics/years');
-        setYears(response.data);
-        if (response.data.length > 0) {
-          setFilterParams(prev => ({ ...prev, year: response.data[0] }));
+        const response = await fetch('/api/statistics/years');
+        if (!response.ok) {
+          throw new Error('연도 목록을 불러오는 중 오류 발생');
+        }
+        const data = await response.json();
+        setYears(data);
+        if (data.length > 0) {
+          setFilterParams(prev => ({ ...prev, year: data[0] }));
         }
       } catch (error) {
         console.error('연도 목록을 불러오는 중 오류 발생:', error);
@@ -162,10 +165,14 @@ const Statistics: React.FC = () => {
       if (!filterParams.year) return;
       
       try {
-        const response = await axios.get<EvaluationPeriod[]>(`/api/statistics/evaluations?year=${filterParams.year}`);
-        setEvaluations(response.data);
-        if (response.data.length > 0) {
-          setFilterParams(prev => ({ ...prev, evaluationName: response.data[0].evaluationName }));
+        const response = await fetch(`/api/statistics/evaluations?year=${filterParams.year}`);
+        if (!response.ok) {
+          throw new Error('평가 목록을 불러오는 중 오류 발생');
+        }
+        const data = await response.json();
+        setEvaluations(data);
+        if (data.length > 0) {
+          setFilterParams(prev => ({ ...prev, evaluationName: data[0].evaluationName }));
         } else {
           setFilterParams(prev => ({ ...prev, evaluationName: '' }));
         }
@@ -195,39 +202,83 @@ const Statistics: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const response = await axios.post<StatisticsData>('/api/statistics/calculate', filterParams);
-      setStatistics(response.data);
+      const response = await fetch('/api/statistics/calculate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(filterParams),
+      });
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '통계 데이터를 불러오는 중 오류가 발생했습니다.');
+      }
+  
+      const data = await response.json();
+      setStatistics(data);
     } catch (err: any) {
-      setError(err.response?.data?.message || '통계 데이터를 불러오는 중 오류가 발생했습니다.');
+      setError(err.message || '통계 데이터를 불러오는 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
   };
 
-  // 엑셀 다운로드
-  const downloadExcel = async () => {
-    try {
-      setLoading(true);
-      
-      const response = await axios.post('/api/statistics/export-excel', filterParams, {
-        responseType: 'blob'
-      });
-      
-      // 다운로드 처리
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'evaluation_statistics.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-    } catch (err) {
-      setError('엑셀 파일 다운로드 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
+  
+// 엑셀 다운로드 함수
+const downloadExcel = async () => {
+  try {
+    setLoading(true);
+    setError(null);
+    
+    // fetch API로 변경
+    const response = await fetch('/api/statistics/export-excel', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(filterParams),
+    });
+    
+    if (!response.ok) {
+      throw new Error('엑셀 파일 다운로드 중 오류가 발생했습니다');
     }
-  };
+    
+    const blob = await response.blob();
+    
+    // 다운로드 처리
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const filename = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'evaluation_statistics.xlsx';
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+  } catch (err) {
+    console.error('엑셀 다운로드 오류:', err);
+    setError('엑셀 파일 다운로드 중 오류가 발생했습니다.');
+  } finally {
+    setLoading(false);
+  }
+};
+
+// 엑셀 다운로드 버튼 UI
+{isExcelView && (
+  <Grid item xs={6} sm={6} md={3}>
+    <Button
+      fullWidth
+      variant="contained"
+      color="success"
+      onClick={downloadExcel}
+      disabled={!filterParams.year || !filterParams.evaluationName || loading}
+      startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FileDownloadIcon />}
+    >
+      내려받기
+    </Button>
+  </Grid>
+)}
 
   const handleChange = (e: SelectChangeEvent) => {
     const { name, value } = e.target;
