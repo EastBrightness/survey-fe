@@ -18,7 +18,14 @@ import {
   SelectChangeEvent,
   CssBaseline,
   ThemeProvider,
-  createTheme
+  createTheme,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  Dialog,
+  DialogActions,
+  TextField,
+  IconButton
 } from '@mui/material';
 import EqualizerIcon from '@mui/icons-material/Equalizer';
 import SearchIcon from '@mui/icons-material/Search';
@@ -37,7 +44,8 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import axios from 'axios';
+import { PersonStandingIcon } from 'lucide-react';
+import { Assessment, ListAlt, Person } from '@mui/icons-material';
 
 // 인터페이스 정의
 interface EvaluationPeriod {
@@ -73,6 +81,14 @@ interface StatisticsData {
   questionStatistics: Record<string, { self: number; others: number }>;
 }
 
+interface Employee {
+  employeeNumber: string;
+  personName: string;
+  organizationName: string;
+  jobName: string;
+  displayText: string;
+}
+
 // MUI 테마 생성
 const theme = createTheme({
   palette: {
@@ -88,16 +104,25 @@ const theme = createTheme({
 // 차트 색상
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
+// 조회 모드 타입
+type ViewMode = 'statistics' | 'excelDownload' | 'personalSearch';
+
 const Statistics: React.FC = () => {
   // 상태 관리
   const [years, setYears] = useState<string[]>([]);
   const [evaluations, setEvaluations] = useState<EvaluationPeriod[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [isExcelView, setIsExcelView] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('statistics');
   const [tabValue, setTabValue] = useState<number>(0);
+  
+  // 직원 검색 관련 상태
+  const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [foundEmployees, setFoundEmployees] = useState<Employee[]>([]);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [searchLoading, setSearchLoading] = useState<boolean>(false);
 
-   // 필터 옵션 상태
-   const [filterOptions, setFilterOptions] = useState<{
+  // 필터 옵션 상태
+  const [filterOptions, setFilterOptions] = useState<{
     personTypes: string[];
     grades: string[];
     sexes: string[];
@@ -120,8 +145,8 @@ const Statistics: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-   // 필터 옵션 불러오기
-   useEffect(() => {
+  // 필터 옵션 불러오기
+  useEffect(() => {
     const fetchFilterOptions = async () => {
       try {
         const response = await fetch('/api/statistics/filters');
@@ -184,7 +209,7 @@ const Statistics: React.FC = () => {
     fetchEvaluations();
   }, [filterParams.year]);
 
-  // 대상 조직 목록은 임시 데이터로 설정
+  // 대상 조직 목록 조회
   useEffect(() => {
     // 실제로는 API로 조직 목록을 가져와야 합니다.
     setOrganizations([
@@ -195,6 +220,45 @@ const Statistics: React.FC = () => {
       { oCode: '112', orgName: '개발2팀' }
     ]);
   }, []);
+
+  // 이름으로 직원 검색
+  const searchEmployeeByName = async () => {
+    if (!searchKeyword || searchKeyword.length < 2) {
+      setError('검색어는 2글자 이상 입력해주세요.');
+      return;
+    }
+    
+    if (!filterParams.year || !filterParams.evaluationName) {
+      setError('평가연도와 평가명(차수)를 먼저 선택해주세요.');
+      return;
+    }
+    
+    setSearchLoading(true);
+    setError(null);
+    
+    try {
+      // URL에 평가연도와, 평가명 파라미터 추가
+      const response = await fetch(
+        `/api/statistics/search-employee?name=${encodeURIComponent(searchKeyword)}&year=${encodeURIComponent(filterParams.year)}&evaluationName=${encodeURIComponent(filterParams.evaluationName)}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('직원 검색 중 오류가 발생했습니다.');
+      }
+      
+      const data: Employee[] = await response.json();
+      setFoundEmployees(data);
+      
+      if (data.length === 0) {
+        setError('검색 결과가 없습니다.');
+      }
+    } catch (error) {
+      console.error('직원 검색 오류:', error);
+      setError('직원 검색 중 오류가 발생했습니다.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   // 통계 데이터 요청
   const fetchStatistics = async () => {
@@ -209,12 +273,12 @@ const Statistics: React.FC = () => {
         },
         body: JSON.stringify(filterParams),
       });
-  
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || '통계 데이터를 불러오는 중 오류가 발생했습니다.');
       }
-  
+
       const data = await response.json();
       setStatistics(data);
     } catch (err: any) {
@@ -224,20 +288,71 @@ const Statistics: React.FC = () => {
     }
   };
 
+  // 엑셀 다운로드
+  const downloadExcel = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/statistics/export-excel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(filterParams),
+      });
+      
+      if (!response.ok) {
+        throw new Error('엑셀 파일 다운로드 중 오류가 발생했습니다');
+      }
+      
+      const blob = await response.blob();
+      
+      // 다운로드 처리
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const filename = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'evaluation_statistics.xlsx';
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (err) {
+      console.error('엑셀 다운로드 오류:', err);
+      setError('엑셀 파일 다운로드 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 개인별 엑셀 다운로드 - 평가회차 필터 적용
+const downloadExcelByEmployee = async () => {
+  if (!selectedEmployee) {
+    setError('직원을 먼저 선택해주세요.');
+    return;
+  }
   
-// 엑셀 다운로드 함수
-const downloadExcel = async () => {
+  if (!filterParams.year || !filterParams.evaluationName) {
+    setError('평가연도와 평가명(차수)를 먼저 선택해주세요.');
+    return;
+  }
+  
   try {
     setLoading(true);
     setError(null);
     
-    // fetch API로 변경
-    const response = await fetch('/api/statistics/export-excel', {
+    // 요청 본문에 평가 회차 정보 추가
+    const response = await fetch('/api/statistics/export-excel-by-employee', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(filterParams),
+      body: JSON.stringify({ 
+        employeeNumber: selectedEmployee.employeeNumber,
+        year: filterParams.year,
+        evaluationName: filterParams.evaluationName 
+      }),
     });
     
     if (!response.ok) {
@@ -250,7 +365,7 @@ const downloadExcel = async () => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const filename = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'evaluation_statistics.xlsx';
+    const filename = `${selectedEmployee.personName}_${filterParams.year}_${filterParams.evaluationName}_statistics.xlsx`;
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
@@ -264,22 +379,6 @@ const downloadExcel = async () => {
   }
 };
 
-// 엑셀 다운로드 버튼 UI
-{isExcelView && (
-  <Grid item xs={6} sm={6} md={3}>
-    <Button
-      fullWidth
-      variant="contained"
-      color="success"
-      onClick={downloadExcel}
-      disabled={!filterParams.year || !filterParams.evaluationName || loading}
-      startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FileDownloadIcon />}
-    >
-      내려받기
-    </Button>
-  </Grid>
-)}
-
   const handleChange = (e: SelectChangeEvent) => {
     const { name, value } = e.target;
     setFilterParams(prev => ({ ...prev, [name]: value }));
@@ -290,12 +389,29 @@ const downloadExcel = async () => {
     fetchStatistics();
   };
 
-  const toggleExcelView = () => {
-    setIsExcelView(!isExcelView);
-  };
-
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const handleEmployeeSelect = (employee: Employee | null) => {
+    setSelectedEmployee(employee);
+  };
+
+  // 검색 키워드 변경 핸들러
+  const handleSearchKeywordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchKeyword(e.target.value);
+    
+    // 입력이 지워지면 검색 결과도 초기화
+    if (!e.target.value) {
+      setFoundEmployees([]);
+    }
+  };
+
+  // 키 입력 이벤트 핸들러 (엔터 키 처리)
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      searchEmployeeByName();
+    }
   };
 
   const prepareQuestionData = () => {
@@ -316,6 +432,20 @@ const downloadExcel = async () => {
       });
   };
 
+  // 모드 전환 핸들러 수정 - 상태 초기화 기능 추가
+  const handleViewModeChange = (newMode: ViewMode) => {
+    // 다른 모드로 전환 시 검색 결과 및 선택된 직원 초기화
+    if (viewMode !== newMode) {
+      if (newMode !== 'personalSearch') {
+        setFoundEmployees([]);
+        setSelectedEmployee(null);
+        setSearchKeyword('');
+      }
+      setError(null);
+      setViewMode(newMode);
+    }
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -333,16 +463,53 @@ const downloadExcel = async () => {
 
       <Container maxWidth="lg">
         <Box sx={{ my: 4 }}>
-          {/* 필터 영역 */}
-          <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
-            <Box component="form" onSubmit={handleSubmit}>
+          {/* 모드 선택 버튼 그룹 */}
+          <Paper elevation={3} sx={{ p: 2, mb: 3 }}>
+            
+          // 모드 버튼에 핸들러 적용
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={4}>
+              <Button
+                fullWidth
+                variant={viewMode === 'statistics' ? 'contained' : 'outlined'}
+                onClick={() => handleViewModeChange('statistics')}
+                startIcon={<Assessment />}
+              >
+                종합 분석 조회
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Button
+                fullWidth
+                variant={viewMode === 'excelDownload' ? 'contained' : 'outlined'}
+                onClick={() => handleViewModeChange('excelDownload')}
+                startIcon={<ListAlt />}
+              >
+                일괄 엑셀 다운로드
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Button
+                fullWidth
+                variant={viewMode === 'personalSearch' ? 'contained' : 'outlined'}
+                onClick={() => handleViewModeChange('personalSearch')}
+                startIcon={<Person />}
+              >
+                개인별 조회/다운로드
+              </Button>
+            </Grid>
+          </Grid>
+          </Paper>
+
+          {/* 개인별 조회 모드 */}
+          {viewMode === 'personalSearch' && (
+            <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
               <Typography variant="h6" gutterBottom>
-                평가결과 {isExcelView ? '일괄 조회' : '종합 분석 조회'}
+                개인별 검색 및 다운로드
               </Typography>
-              
               <Grid container spacing={2} alignItems="center">
                 {/* 평가연도 선택 */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <FormControl fullWidth>
                     <InputLabel>평가연도</InputLabel>
                     <Select
@@ -359,7 +526,7 @@ const downloadExcel = async () => {
                 </Grid>
                 
                 {/* 평가명(차수) 선택 */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <FormControl fullWidth>
                     <InputLabel>평가명(차수)</InputLabel>
                     <Select
@@ -377,128 +544,240 @@ const downloadExcel = async () => {
                     </Select>
                   </FormControl>
                 </Grid>
-                
-                {/* 대상조직 선택 */}
-                <Grid item xs={12} sm={6} md={3}>
+
+                <Grid item xs={12} sm={12} md={4}>
                   <FormControl fullWidth>
-                    <InputLabel>대상조직</InputLabel>
-                    <Select
-                      name="organizationCode"
-                      value={filterParams.organizationCode}
-                      label="대상조직"
-                      onChange={handleChange}
-                    >
-                      {organizations.map((org) => (
-                        <MenuItem key={org.oCode} value={org.oCode}>
-                          {org.orgName}
-                        </MenuItem>
-                      ))}
-                    </Select>
+                    <TextField
+                      label="직원 이름 검색"
+                      value={searchKeyword}
+                      onChange={handleSearchKeywordChange}
+                      onKeyDown={handleKeyDown}
+                      placeholder="이름을 2글자 이상 입력하세요"
+                      InputProps={{
+                        endAdornment: (
+                          <Button
+                            onClick={searchEmployeeByName}
+                            disabled={searchLoading || !filterParams.year || !filterParams.evaluationName}
+                            sx={{ minWidth: 'auto', p: 1 }}
+                            variant="contained"
+                            color="primary"
+                          >
+                            {searchLoading ? <CircularProgress size={20} /> : '검색'}
+                          </Button>
+                        ),
+                      }}
+                    />
                   </FormControl>
                 </Grid>
-                
-                {/* 엑셀 다운로드 모드일 때 추가 필터 보여주기 */}
-                {isExcelView && (
-                  <>
-                    {/* 신분 선택 */}
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControl fullWidth>
-                        <InputLabel>신분</InputLabel>
-                        <Select
-                          name="personType"
-                          value={filterParams.personType}
-                          label="신분"
-                          onChange={handleChange}
-                        >
-                          <MenuItem value="">전체</MenuItem>
-                          {filterOptions.personTypes.map((type) => (
-                            <MenuItem key={type} value={type}>{type}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    
-                    {/* 계급 선택 */}
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControl fullWidth>
-                        <InputLabel>계급</InputLabel>
-                        <Select
-                          name="grade"
-                          value={filterParams.grade}
-                          label="계급"
-                          onChange={handleChange}
-                        >
-                          <MenuItem value="">전체</MenuItem>
-                          {filterOptions.grades.map((grade) => (
-                            <MenuItem key={grade} value={grade}>{grade}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    
-                    {/* 성별 선택 */}
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControl fullWidth>
-                        <InputLabel>성별</InputLabel>
-                        <Select
-                          name="sex"
-                          value={filterParams.sex}
-                          label="성별"
-                          onChange={handleChange}
-                        >
-                          <MenuItem value="">전체</MenuItem>
-                          {filterOptions.sexes.map((sex) => (
-                            <MenuItem key={sex} value={sex}>{sex === 'M' ? '남성' : '여성'}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                  </>
-                )}
-                
-                {/* 조회 버튼 */}
-                <Grid item xs={6} sm={3} md={isExcelView ? 2 : 3}>
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    color="primary"
-                    type="submit"
-                    disabled={!filterParams.year || !filterParams.evaluationName || loading}
-                    startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <SearchIcon />}
-                  >
-                    조회
-                  </Button>
-                </Grid>
-                
-                {/* 엑셀 다운로드 버튼 (엑셀 모드일 때만) */}
-                {isExcelView && (
-                  <Grid item xs={6} sm={3} md={2}>
-                    <Button
-                      fullWidth
-                      variant="contained"
-                      color="success"
-                      onClick={downloadExcel}
-                      disabled={!filterParams.year || !filterParams.evaluationName || loading}
-                      startIcon={<FileDownloadIcon />}
-                    >
-                      내려받기
-                    </Button>
+
+                {foundEmployees.length > 0 && (
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel id="employee-select-label">검색된 직원 선택</InputLabel>
+                      <Select
+                        labelId="employee-select-label"
+                        value={selectedEmployee ? selectedEmployee.employeeNumber : ''}
+                        onChange={(e) => {
+                          const empNumber = e.target.value;
+                          const selected = foundEmployees.find(emp => emp.employeeNumber === empNumber) || null;
+                          handleEmployeeSelect(selected);
+                        }}
+                        label="검색된 직원 선택"
+                      >
+                        {foundEmployees.map((employee) => (
+                          <MenuItem key={employee.employeeNumber} value={employee.employeeNumber}>
+                            {employee.organizationName} | {employee.jobName} | {employee.personName}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   </Grid>
                 )}
-                
-                {/* 모드 전환 버튼 */}
-                <Grid item xs={12} sm={6} md={isExcelView ? 2 : 3}>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    onClick={toggleExcelView}
-                  >
-                    {isExcelView ? '분석 모드' : '엑셀 다운로드 모드'}
-                  </Button>
-                </Grid>
+
+                {selectedEmployee && (
+                  <Grid item xs={12}>
+                    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      <Typography variant="body1">
+                        <strong>선택된 직원:</strong> {selectedEmployee.organizationName} | {selectedEmployee.jobName} | {selectedEmployee.personName}
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                          {filterParams.year}년 {filterParams.evaluationName} 평가 결과
+                        </Typography>
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={downloadExcelByEmployee}
+                        disabled={loading}
+                        startIcon={loading ? <CircularProgress size={20} /> : <FileDownloadIcon />}
+                      >
+                        엑셀 다운로드
+                      </Button>
+                    </Box>
+                  </Grid>
+                )}
               </Grid>
-            </Box>
-          </Paper>
+            </Paper>
+          )}
+          
+          {/* 일반 필터 영역 - 개인별 조회 모드가 아닐 때만 표시 */}
+          {viewMode !== 'personalSearch' && (
+            <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+              <Box component="form" onSubmit={handleSubmit}>
+                <Typography variant="h6" gutterBottom>
+                  평가결과 {viewMode === 'statistics' ? '종합 분석 조회' : '일괄 엑셀 다운로드'}
+                </Typography>
+                
+                <Grid container spacing={2} alignItems="center">
+                  {/* 평가연도 선택 */}
+                  <Grid item xs={12} sm={6} md={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>평가연도</InputLabel>
+                      <Select
+                        name="year"
+                        value={filterParams.year}
+                        label="평가연도"
+                        onChange={handleChange}
+                      >
+                        {years.map((year) => (
+                          <MenuItem key={year} value={year}>{year}년</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  
+                  {/* 평가명(차수) 선택 */}
+                  <Grid item xs={12} sm={6} md={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>평가명(차수)</InputLabel>
+                      <Select
+                        name="evaluationName"
+                        value={filterParams.evaluationName}
+                        label="평가명(차수)"
+                        onChange={handleChange}
+                        disabled={!filterParams.year}
+                      >
+                        {evaluations.map((evaluation) => (
+                          <MenuItem key={evaluation.id} value={evaluation.evaluationName}>
+                            {evaluation.evaluationName}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  
+                  {/* 대상조직 선택 */}
+                  <Grid item xs={12} sm={6} md={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>대상조직</InputLabel>
+                      <Select
+                        name="organizationCode"
+                        value={filterParams.organizationCode}
+                        label="대상조직"
+                        onChange={handleChange}
+                      >
+                        {organizations.map((org) => (
+                          <MenuItem key={org.oCode} value={org.oCode}>
+                            {org.orgName}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  
+                  {/* 엑셀 다운로드 모드일 때 추가 필터 보여주기 */}
+                  {viewMode === 'excelDownload' && (
+                    <>
+                      {/* 신분 선택 */}
+                      <Grid item xs={12} sm={6} md={4}>
+                        <FormControl fullWidth>
+                          <InputLabel>신분</InputLabel>
+                          <Select
+                            name="personType"
+                            value={filterParams.personType}
+                            label="신분"
+                            onChange={handleChange}
+                          >
+                            <MenuItem value="">전체</MenuItem>
+                            {filterOptions.personTypes.map((type) => (
+                              <MenuItem key={type} value={type}>{type}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      
+                      {/* 계급 선택 */}
+                      <Grid item xs={12} sm={6} md={4}>
+                        <FormControl fullWidth>
+                          <InputLabel>계급</InputLabel>
+                          <Select
+                            name="grade"
+                            value={filterParams.grade}
+                            label="계급"
+                            onChange={handleChange}
+                          >
+                            <MenuItem value="">전체</MenuItem>
+                            {filterOptions.grades.map((grade) => (
+                              <MenuItem key={grade} value={grade}>{grade}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      
+                      {/* 성별 선택 */}
+                      <Grid item xs={12} sm={6} md={4}>
+                        <FormControl fullWidth>
+                          <InputLabel>성별</InputLabel>
+                          <Select
+                            name="sex"
+                            value={filterParams.sex}
+                            label="성별"
+                            onChange={handleChange}
+                          >
+                            <MenuItem value="">전체</MenuItem>
+                            {filterOptions.sexes.map((sex) => (
+                              <MenuItem key={sex} value={sex}>{sex === 'M' ? '남성' : '여성'}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                    </>
+                  )}
+                  
+                  {/* 조회 버튼 - 분석 모드일 때만 */}
+                  {viewMode === 'statistics' && (
+                    <Grid item xs={12} sm={6} md={6}>
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        color="primary"
+                        type="submit"
+                        disabled={!filterParams.year || !filterParams.evaluationName || loading}
+                        startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <SearchIcon />}
+                      >
+                        조회
+                      </Button>
+                    </Grid>
+                  )}
+                  
+                  {/* 엑셀 다운로드 버튼 - 엑셀 모드일 때만 */}
+                  {viewMode === 'excelDownload' && (
+                    <Grid item xs={12} sm={6} md={6}>
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        color="success"
+                        onClick={downloadExcel}
+                        disabled={!filterParams.year || !filterParams.evaluationName || loading}
+                        startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FileDownloadIcon />}
+                      >
+                        엑셀 다운로드
+                      </Button>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+            </Paper>
+          )}
 
           {error && (
             <Box sx={{ color: 'error.main', my: 2 }}>
@@ -506,8 +785,8 @@ const downloadExcel = async () => {
             </Box>
           )}
           
-          {/* 통계 결과 영역 */}
-          {statistics && !loading && !isExcelView && (
+          {/* 통계 결과 영역 - 종합 분석 모드일 때만 */}
+          {viewMode === 'statistics' && statistics && !loading && (
             <>
               {/* 요약 정보 */}
               <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
@@ -617,7 +896,7 @@ const downloadExcel = async () => {
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                  </Box>
+                    </Box>
                 )}
 
                 {/* 신분별 차트 */}
@@ -775,62 +1054,7 @@ const downloadExcel = async () => {
                     </Typography>
                     <ResponsiveContainer width="100%" height="90%">
                       <BarChart
-                        data={(() => {
-                          if (!statistics || !statistics.questionStatistics) return [];
-                          
-                          // 1. SELF와 OTHERS 타입별로 문항 분리
-                          const selfQuestions: Record<string, number> = {};
-                          const othersQuestions: Record<string, number> = {};
-                          
-                          Object.entries(statistics.questionStatistics).forEach(([questionId, scores]) => {
-                            if (scores.self !== undefined) {
-                              selfQuestions[questionId] = scores.self;
-                            }
-                            if (scores.others !== undefined) {
-                              othersQuestions[questionId] = scores.others;
-                            }
-                          });
-                          
-                          // 2. 각 타입별로 questionId 기준 정렬
-                          const sortedSelfQuestionIds = Object.keys(selfQuestions).sort((a, b) => parseInt(a) - parseInt(b));
-                          const sortedOthersQuestionIds = Object.keys(othersQuestions).sort((a, b) => parseInt(a) - parseInt(b));
-                          
-                          // 3. 순서 기준으로 매칭하여 차트 데이터 생성
-                          const chartData = [];
-                          const maxLength = Math.max(sortedSelfQuestionIds.length, sortedOthersQuestionIds.length);
-                          
-                          for (let i = 0; i < maxLength; i++) {
-                            const selfId = i < sortedSelfQuestionIds.length ? sortedSelfQuestionIds[i] : null;
-                            const othersId = i < sortedOthersQuestionIds.length ? sortedOthersQuestionIds[i] : null;
-                            
-                            chartData.push({
-                              name: `문항 ${i + 1}번`,
-                              selfId: selfId,
-                              othersId: othersId,
-                              자가평가: selfId ? selfQuestions[selfId] : null,
-                              타인평가: othersId ? othersQuestions[othersId] : null
-                            });
-                          }
-                          
-                          // 4. 평균 추가
-                          const avgSelf = sortedSelfQuestionIds.length > 0 
-                            ? sortedSelfQuestionIds.reduce((sum, qid) => sum + selfQuestions[qid], 0) / sortedSelfQuestionIds.length 
-                            : 0;
-                            
-                          const avgOthers = sortedOthersQuestionIds.length > 0 
-                            ? sortedOthersQuestionIds.reduce((sum, qid) => sum + othersQuestions[qid], 0) / sortedOthersQuestionIds.length 
-                            : 0;
-                          
-                          chartData.push({
-                            name: '평균',
-                            selfId: null,
-                            othersId: null,
-                            자가평가: Math.round(avgSelf * 100) / 100,
-                            타인평가: Math.round(avgOthers * 100) / 100
-                          });
-                          
-                          return chartData;
-                        })()}
+                        data={prepareQuestionData()}
                         margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" />
